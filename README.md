@@ -1,454 +1,440 @@
 # lau-dynamical-algebra
 
-**The algebra of dynamical systems** — operator algebras from evolution. Transfer operators, Koopman operators, C\*-algebras, spectral theory, thermodynamic formalism, and Lyapunov exponents, all in pure Rust.
+**Operator algebras and ergodic theory for dynamical systems — in pure Rust.**
 
-[![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-87-green.svg)](#testing)
+This crate provides a unified computational framework for the operator-theoretic study of dynamical systems. It brings together transfer operators (Perron-Frobenius), Koopman operators, C\*-algebra elements, spectral analysis, dynamical zeta functions, thermodynamic formalism, Ruelle operators, subshifts of finite type, entropy theory, and Lyapunov exponents — all with first-class matrix operations and 87 property-tested unit tests.
 
 ---
 
-## Overview
+## What This Does
 
-This crate studies dynamical systems through the lens of **operator algebras**. The key insight: a map T: X → X generates a family of linear operators that form algebraic structures revealing the system's deep properties.
+| Module | Core Abstraction | What You Can Compute |
+|---|---|---|
+| `transfer` | Perron-Frobenius transfer operator | Invariant measures, finite-rank approximations |
+| `koopman` | Koopman operator (composition operator) | Dynamic Mode Decomposition (DMD), finite approximations |
+| `cstar` | C\*-algebra elements | Operator norms, positivity, adjoints, spectrum bounds |
+| `spectral` | Spectral decomposition | Eigenvalues, power iteration, spectral radius |
+| `zeta` | Dynamical zeta function ζ(z) = det(I − zT)⁻¹ | Poles, Taylor coefficients, radius of convergence |
+| `thermo` | Thermodynamic formalism | Topological pressure, equilibrium states, free energy |
+| `ruelle` | Ruelle operator with potential | Leading eigenvalue, pressure, equilibrium measure, correlations |
+| `subshift` | Subshifts of finite type (SFT) | Topological entropy, Parry measure, word enumeration, zeta function |
+| `entropy` | Entropy theory | Shannon, Kolmogorov-Sinai, conditional, KL divergence, information dimension |
+| `lyapunov` | Lyapunov spectrum via Oseledets theorem | QR-based exponents, Pesin entropy, Kaplan-Yorke dimension |
 
-| Operator | Acts On | Action | Module |
-|---|---|---|---|
-| Transfer (Perron-Frobenius) | Density functions | Push densities forward | `transfer` |
-| Koopman | Observable functions | Pull observables back | `koopman` |
-| C\*-algebra | Matrix elements | Algebra of compositions | `cstar` |
-| Ruelle | Functions with potential | Weighted push-forward | `ruelle` |
+---
 
-These are complemented by: spectral decomposition, dynamical zeta functions, thermodynamic formalism, subshifts of finite type, entropy theory, and Lyapunov spectrum computation.
+## Key Idea
+
+In ergodic theory, a dynamical system *T : X → X* is studied not by tracking individual orbits, but through the **operators** those systems induce on function spaces:
+
+- The **Perron-Frobenius (transfer) operator** pushes densities forward: it tells you how probability distributions evolve.
+- The **Koopman operator** pulls observables back: it tells you how measurements transform.
+- The **Ruelle operator** weights the transfer operator by a potential, connecting dynamics to statistical mechanics.
+
+These operators live in **C\*-algebras** — Banach \*-algebras with a norm satisfying ‖a\*a‖ = ‖a‖². Their spectral properties encode everything: mixing rates, entropy, equilibrium states, and the distribution of periodic orbits (via zeta functions).
+
+This crate makes all of that computational. You build matrices, compose operators, and extract spectral invariants — with the mathematical structures enforced by the type system.
+
+---
+
+## Install
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+lau-dynamical-algebra = { git = "https://github.com/SuperInstance/lau-dynamical-algebra" }
+```
+
+Or publish to [crates.io](https://crates.io) and use:
+
+```toml
+[dependencies]
+lau-dynamical-algebra = "0.1"
+```
+
+Requires **Rust 2021 edition** (MSRV 1.56+).
+
+### Dependencies
+
+| Crate | Why |
+|---|---|
+| `nalgebra` 0.33 | Dense linear algebra (matrices, vectors, eigenvalues) |
+| `num-complex` 0.4 | Complex number arithmetic for zeta functions |
+| `serde` 1 | Serialization of all data structures |
+| `approx` 0.5 (dev) | Floating-point tolerance assertions in tests |
 
 ---
 
 ## Quick Start
 
-```toml
-# Cargo.toml
-[dependencies]
-lau-dynamical-algebra = "0.1"
-```
+### Transfer operator and invariant measure
 
 ```rust
-use lau_dynamical_algebra::*;
+use nalgebra::{DMatrix, DVector};
+use lau_dynamical_algebra::transfer::TransferOperator;
 
-// --- Transfer operator for a 2-cycle ---
-let p = TransferOperator::from_map(&[1, 0], 2);
-let invariant = p.invariant_measure(1000, 1e-12);
-assert!((invariant[0] - 0.5).abs() < 1e-8);
+// Build a stochastic transition matrix (2-state Markov chain)
+let t = DMatrix::from_row_slice(2, 2, &[0.7, 0.3, 0.4, 0.6]);
+let op = TransferOperator::new(t);
 
-// --- Koopman operator via DMD from data ---
-let snapshots = DMatrix::from_row_slice(2, 4, &[
-    1.0, 0.5, 0.25, 0.125,
-    0.0, 0.5, 0.75, 0.875,
-]);
-let k = KoopmanOperator::from_trajectories(&snapshots).unwrap();
-let radius = k.spectral_radius();
-
-// --- Lyapunov exponents ---
-let expanding = DMatrix::from_diagonal(&DVector::from_vec(vec![2.0, 0.5]));
-let spectrum = LyapunovSpectrum::from_matrix(&expanding, 100);
-assert!(spectrum.is_chaotic());           // λ₁ > 0
-assert!(spectrum.is_dissipative());       // Σ λᵢ < 0
-let d_ky = spectrum.kaplan_yorke_dimension(); // fractal dimension
+// Compute the invariant measure (stationary distribution)
+let mu = op.invariant_measure(1000, 1e-12);
+println!("Invariant measure: {:.4}, {:.4}", mu[0], mu[1]);
+// → 0.5714, 0.4286
 ```
 
----
-
-## Architecture
-
-```
-┌────────────────────────────────────────────────────┐
-│  Dynamical System T: X → X                         │
-│                                                    │
-│  ┌─────────────┐     ┌─────────────┐              │
-│  │ Transfer Op  │ ←→  │ Koopman Op  │  (adjoints)  │
-│  │ (on densities)│    │ (on observ.) │              │
-│  └──────┬───────┘     └──────┬───────┘              │
-│         │                    │                      │
-│  ┌──────▼──────────────────────▼──────┐            │
-│  │     Spectral Decomposition          │            │
-│  │  eigenvalues, projections, f(A)     │            │
-│  └──────────────┬─────────────────────┘            │
-│                 │                                  │
-│  ┌──────────────▼─────────────────────┐            │
-│  │     C*-Algebra of Evolution         │            │
-│  │  polynomials, functional calculus    │            │
-│  └────────────────────────────────────┘            │
-│                                                    │
-│  ┌──────────────┐  ┌──────────────┐               │
-│  │ Ruelle Op     │  │ Subshift SFT  │               │
-│  │ (w/ potential) │  │ (symbolic dyn)│               │
-│  └──────┬────────┘  └──────┬────────┘               │
-│         │                  │                        │
-│  ┌──────▼──────────────────▼────────┐              │
-│  │   Thermodynamic Formalism         │              │
-│  │  pressure, equilibrium, free energy│              │
-│  └──────────────────────────────────┘              │
-│                                                    │
-│  ┌──────────────┐  ┌──────────────┐               │
-│  │ Entropy       │  │ Lyapunov      │               │
-│  │ Shannon, KS,  │  │ Spectrum,     │               │
-│  │ KL, mutual    │  │ Kaplan-Yorke  │               │
-│  │ information   │  │ dimension     │               │
-│  └──────────────┘  └──────────────┘               │
-│                                                    │
-│  ┌────────────────────────────────────┐            │
-│  │  Dynamical Zeta Function ζ(z)       │            │
-│  │  det(I − zT)⁻¹                     │            │
-│  └────────────────────────────────────┘            │
-└────────────────────────────────────────────────────┘
-```
-
----
-
-## Modules in Detail
-
-### Transfer Operator (`transfer`)
-
-The Perron-Frobenius operator describes how probability densities evolve under the dynamics. For T: X → X:
-
-> (Pf)(y) = Σ_{T(x)=y} f(x) / |T'(x)|
+### Dynamical zeta function
 
 ```rust
-// From a stochastic matrix (columns sum to 1)
-let p = TransferOperator::from_stochastic_matrix(matrix)?;
+use num_complex::Complex;
+use lau_dynamical_algebra::zeta::DynamicalZeta;
 
-// From a deterministic map: map[i] = j means i → j
-let p = TransferOperator::from_map(&[1, 2, 0], 3);
+let t = DMatrix::from_diagonal(&DVector::from_vec(vec![0.5, 0.3]));
+let zeta = DynamicalZeta::new(t);
 
-// Evolve a density
-let new_density = p.apply(&density);
-
-// Find the invariant (stationary) measure via power iteration
-let mu = p.invariant_measure(1000, 1e-12);
-
-// Compute iterates P^n
-let p10 = p.iterate(10);
-
-// Perron-Frobenius eigenvalue (= 1 for stochastic matrices)
-let lambda = p.perron_frobenius_eigenvalue();
-```
-
-**Key properties:**
-- Stochasticity is validated on construction
-- Apply preserves total mass (density sums to 1)
-- Invariant measure converges via power iteration
-
-### Koopman Operator (`koopman`)
-
-The adjoint of the transfer operator. Instead of pushing densities forward, it pulls observables back:
-
-> (Kf)(x) = f(T(x))
-
-This linearizes nonlinear dynamics — a nonlinear map on state space becomes a linear operator on function space.
-
-```rust
-// From the transfer matrix (K = P^T)
-let k = KoopmanOperator::from_transfer_matrix(&transfer_matrix);
-
-// From data via Dynamic Mode Decomposition (DMD)
-let k = KoopmanOperator::from_dmd(&X_snapshots, &Y_snapshots)?;
-
-// From a full trajectory matrix
-let k = KoopmanOperator::from_trajectories(&trajectory_data)?;
-
-// Apply to an observable
-let evolved_observable = k.apply(&f);
-
-// Check if dynamics are measure-preserving (unitary Koopman)
-let unitary = k.is_unitary(1e-10);
-
-// Compute eigenvalues and spectral radius
-let eigvals = k.eigenvalues();
-let sr = k.spectral_radius();
-```
-
-### C\*-Algebra (`cstar`)
-
-The algebraic structure generated by repeatedly applying the evolution operator. C\*-algebras capture spectral information through Gelfand duality.
-
-```rust
-// Create an algebra element from a matrix
-let a = AlgebraElement::from_real(matrix);
-let id = AlgebraElement::identity(3);
-
-// C*-norm (operator norm via spectral radius of A*A)
-let norm = a.cstar_norm();
-
-// Adjoint (conjugate transpose)
-let a_star = a.adjoint();
-
-// Check properties
-a.is_self_adjoint(1e-10);  // Hermitian?
-a.is_positive(1e-10);       // Positive semi-definite?
-
-// Build the algebra generated by an operator
-let alg = EvolutionAlgebra::new(a);
-
-// Compute polynomials in the generator
-let p_x = alg.polynomial(&[c0, c1, c2]); // c0*I + c1*A + c2*A²
-
-// Functional calculus
-let f_a = alg.functional_calculus_poly(&coefficients);
-
-// Commutator [A, A*] — if zero, algebra is commutative
-let is_commutative = alg.is_commutative(1e-10);
-```
-
-### Spectral Decomposition (`spectral`)
-
-Eigenvalue computation, spectral projections, and functional calculus for dynamical operators.
-
-```rust
-// Full spectral decomposition
-let data = spectral_decomposition(&matrix, max_eigenvalues);
-// data.eigenvalues, data.eigenvectors, data.spectral_radius
-
-// Power iteration for dominant eigenvalue
-let (eigenvalue, eigenvector) = power_iteration(&matrix, 500, 1e-12);
-
-// Spectral projection onto eigenspace
-let proj = spectral_projection(&matrix, eigenvalue, 1e-10);
-
-// Functional calculus: compute f(A) for self-adjoint A
-let f_a = functional_calculus(&matrix, |lambda| lambda.exp());
-```
-
-### Dynamical Zeta Function (`zeta`)
-
-The zeta function ζ(z) = det(I − zT)⁻¹ encodes the spectrum of periodic orbits.
-
-```rust
-let zeta = DynamicalZeta::new(transfer_matrix);
-
-// Evaluate at a complex point
+// Evaluate ζ(z) at a point
 let val = zeta.evaluate(Complex::new(0.5, 0.0));
 
-// Determinant det(I − zT)
-let det = zeta.determinant(Complex::new(0.3, 0.0));
-
-// Taylor coefficients: ζ(z) = exp(Σ Tr(T^n)/n · z^n)
-let coeffs = zeta.taylor_coefficients(10);
-
-// Poles of the zeta function (reciprocals of eigenvalues)
+// Poles are reciprocals of eigenvalues of T
 let poles = zeta.poles();
 
-// Radius of convergence (= 1/spectral_radius(T))
-let r = zeta.radius_of_convergence();
+// Taylor coefficients: c_n = Tr(T^n) / n
+let coeffs = zeta.taylor_coefficients(5);
 ```
 
-### Thermodynamic Formalism (`thermo`)
-
-Connects statistical mechanics with dynamics: topological pressure, equilibrium states, and the variational principle.
+### Lyapunov exponents and chaos detection
 
 ```rust
-let sys = ThermodynamicSystem::new(transition_matrix, potential)?;
+use lau_dynamical_algebra::lyapunov::LyapunovSpectrum;
 
-// Topological pressure P(φ) = log(leading eigenvalue of L_φ)
-let pressure = topological_pressure(&sys);
+// Diagonal map: one expanding, one contracting direction
+let m = DMatrix::from_diagonal(&DVector::from_vec(vec![2.0, 0.5]));
+let spectrum = LyapunovSpectrum::from_matrix(&m, 100);
 
-// Equilibrium (Gibbs) state — the measure maximizing h(μ) + ∫φ dμ
-let eq = equilibrium_state(&sys, 1000, 1e-12);
+assert!(spectrum.is_chaotic());         // has positive exponent
+assert!(spectrum.is_dissipative());     // sum < 0
 
-// Free energy
-let f = free_energy(&sys);
-
-// Check if a measure is an equilibrium state
-let is_eq = is_equilibrium(&measure, &sys, 1e-6);
-
-// Measure-theoretic entropy h(μ) = -Σ μ[i] P[i][j] log P[i][j]
-let h = measure_entropy(&mu, &transition);
-
-// Potential integral ∫φ dμ
-let integral = potential_integral(&potential, &measure);
-```
-
-### Ruelle Operator (`ruelle`)
-
-The Ruelle operator is the transfer operator weighted by a potential, central to thermodynamic formalism:
-
-> (L_φ f)(y) = Σ_{T(x)=y} exp(φ(x)) f(x)
-
-```rust
-let r = RuelleOperator::new(&transition, &potential)?;
-
-// Leading eigenvalue and pressure
-let lambda = r.leading_eigenvalue();
-let pressure = r.pressure(); // = log(λ)
-
-// Leading eigenfunction
-let h = r.leading_eigenfunction();
-
-// Equilibrium measure via dual operator
-let mu = r.equilibrium_measure(1000, 1e-12);
-
-// Correlation function C_n(f,g) = ∫ f · L^n g dμ - (∫f dμ)(∫g dμ)
-let c = r.correlation(&f, &g, n, &mu);
-```
-
-**Key fact:** The pressure P(φ) equals log of the spectral radius of L_φ. The equilibrium measure is the eigenmeasure of the dual operator.
-
-### Subshift of Finite Type (`subshift`)
-
-Symbolic dynamics defined by a 0-1 transition matrix. The shift space Σ_A consists of all infinite sequences where adjacent symbols are allowed transitions.
-
-```rust
-// Built-in examples
-let full = SubshiftFiniteType::full_shift(2);   // All binary sequences
-let golden = SubshiftFiniteType::golden_mean(); // No consecutive 1s
-
-// Topological entropy h = log(λ_max)
-let h = golden.topological_entropy(); // ≈ log((1+√5)/2)
-
-// Count allowed words of length n
-let count = golden.count_words(3); // = 5
-
-// Check if a specific word is allowed
-assert!(golden.is_allowed_word(&[0, 1]));
-assert!(!golden.is_allowed_word(&[1, 1])); // golden mean forbids "11"
-
-// Enumerate all words of a given length
-let words = golden.enumerate_words(2); // [[0,0], [0,1], [1,0]]
-
-// Parry measure (measure of maximal entropy)
-let mu = golden.parry_measure();
-
-// Zeta function ζ(z) = 1/det(I - zA)
-let z = golden.zeta_function(0.5);
-```
-
-### Entropy (`entropy`)
-
-Comprehensive entropy toolkit for dynamical systems and information theory.
-
-```rust
-// Shannon entropy H(p) = -Σ pᵢ log pᵢ
-let h = shannon_entropy(&[0.5, 0.5]); // = ln(2)
-
-// Joint entropy H(X,Y)
-let h_xy = joint_entropy(&joint_distribution);
-
-// Conditional entropy H(X|Y)
-let h_x_given_y = conditional_entropy(&joint);
-
-// Mutual information I(X;Y) = H(X) + H(Y) - H(X,Y)
-let mi = mutual_information(&joint);
-
-// Kolmogorov-Sinai entropy of a Markov chain
-let h_ks = kolmogorov_sinai_entropy(&measure, &transition);
-
-// KL divergence D(P || Q)
-let kl = kl_divergence(&p, &q);
-
-// Topological entropy from word counts
-let h_top = topological_entropy_from_counts(&counts);
-
-// Information dimension (fractal dimension from entropy scaling)
-let dim = information_dimension(&entropies, &scales);
-```
-
-### Lyapunov Spectrum (`lyapunov`)
-
-Lyapunov exponents via the Oseledets multiplicative ergodic theorem, using QR-decomposition for numerical stability.
-
-```rust
-// From a trajectory of Jacobian matrices
-let spectrum = LyapunovSpectrum::from_jacobians(&jacobians);
-
-// From a single matrix (repeated application)
-let spectrum = LyapunovSpectrum::from_matrix(&matrix, 1000);
-
-// Key diagnostics
-spectrum.is_chaotic();        // Any λ > 0?
-spectrum.is_dissipative();    // Σ λᵢ < 0?
-spectrum.is_conservative(tol);// Σ λᵢ ≈ 0?
-
-// Pesin entropy: h = Σ λᵢ⁺
+// Pesin entropy: h = Σ λ⁺
 let h = spectrum.pesin_entropy();
 
-// Kaplan-Yorke dimension (fractal attractor dimension)
-let d = spectrum.kaplan_yorke_dimension();
-
-// Oseledets splitting (Lyapunov subspaces)
-let splitting = oseledets_splitting(&jacobians, 0.01);
-
-// Finite-time Lyapunov exponent from time series
-let ftle = finite_time_lyapunov(&time_series, epsilon);
+// Kaplan-Yorke (fractal) dimension
+let d_ky = spectrum.kaplan_yorke_dimension();
 ```
 
-**Algorithm:** Uses Gram-Schmidt QR decomposition on the accumulated cocycle for numerically stable exponent extraction, following the standard algorithm from Eckmann & Ruelle.
+### Subshift of finite type
+
+```rust
+use lau_dynamical_algebra::subshift::SubshiftFiniteType;
+
+// Golden mean shift: no consecutive 1s
+let sft = SubshiftFiniteType::golden_mean();
+
+// Topological entropy = log(golden ratio)
+let h = sft.topological_entropy();
+
+// Enumerate all allowed words of length 3
+let words = sft.enumerate_words(3);
+// → [[0,0,0], [0,0,1], [0,1,0], [1,0,0], [1,0,1]]
+
+// Parry measure (measure of maximal entropy)
+let mu = sft.parry_measure();
+```
+
+### Thermodynamic formalism
+
+```rust
+use lau_dynamical_algebra::thermo::ThermodynamicSystem;
+
+let t = DMatrix::from_row_slice(2, 2, &[0.5, 0.5, 0.5, 0.5]);
+let phi = DVector::from_vec(vec![0.0, 0.0]);
+let sys = ThermodynamicSystem::new(t, phi).unwrap();
+
+// Topological pressure = log(leading eigenvalue of RPF operator)
+let pressure = topological_pressure(&sys);
+
+// Equilibrium (Gibbs) state
+let eq = equilibrium_state(&sys, 1000, 1e-12);
+```
 
 ---
 
-## Testing
+## API Reference
 
-87 tests covering all modules:
+### `transfer` — Perron-Frobenius Transfer Operator
+
+| Signature | Description |
+|---|---|
+| `TransferOperator::new(matrix)` | Build from a stochastic matrix |
+| `op.apply(f)` | Apply operator to a density vector |
+| `op.iterate(n)` | Compose operator *n* times |
+| `op.invariant_measure(max_iter, tol)` | Fixed-point stationary distribution |
+| `op.leading_eigenvalue()` | Spectral radius via power iteration |
+| `op.adjoint()` | Dual (Koopman-like) operator |
+
+### `koopman` — Koopman Operator & DMD
+
+| Signature | Description |
+|---|---|
+| `KoopmanOperator::from_data(X, Y, basis)` | Construct from snapshot matrices |
+| `koop.apply(f)` | Pull back an observable |
+| `koop.dmd_eigenvalues()` | Dynamic Mode Decomposition eigenvalues |
+| `koop.dmd_modes()` | DMD mode vectors |
+| `koop.finite_approx(basis)` | Galerkin projection onto basis functions |
+
+### `cstar` — C\*-Algebra Elements
+
+| Signature | Description |
+|---|---|
+| `CStarElement::new(matrix)` | Wrap a matrix as a C\*-element |
+| `el.norm()` | Operator norm (largest singular value) |
+| `el.is_positive(tol)` | Check positive semi-definiteness |
+| `el.is_self_adjoint(tol)` | Check Hermiticity |
+| `el.adjoint()` | Conjugate transpose |
+| `el.spectrum_bounds()` | Gershgorin circle bounds |
+
+### `spectral` — Spectral Decomposition
+
+| Signature | Description |
+|---|---|
+| `spectral_decomposition(mat, n)` | Eigenvalues + spectral radius |
+| `power_iteration(mat, n_iter)` | Leading eigenvector/value pair |
+
+### `zeta` — Dynamical Zeta Function
+
+| Signature | Description |
+|---|---|
+| `DynamicalZeta::new(operator)` | Build ζ(z) from transfer operator |
+| `zeta.evaluate(z)` | Evaluate ζ(z) = 1/det(I − zT) |
+| `zeta.determinant(z)` | Compute det(I − zT) |
+| `zeta.poles()` | Poles = 1/λᵢ (reciprocals of eigenvalues) |
+| `zeta.taylor_coefficients(order)` | cₙ = Tr(Tⁿ)/n |
+| `zeta.radius_of_convergence()` | 1/spectral_radius(T) |
+| `zeta.derivative_log_zeta(z, h)` | d/dz log ζ(z) via finite differences |
+
+### `thermo` — Thermodynamic Formalism
+
+| Signature | Description |
+|---|---|
+| `ThermodynamicSystem::new(transition, potential)` | Build system with transition matrix + potential |
+| `ruelle_pf_matrix(&sys)` | Ruelle-Perron-Frobenius operator matrix |
+| `topological_pressure(&sys)` | log(leading eigenvalue of RPF operator) |
+| `equilibrium_state(&sys, max_iter, tol)` | Gibbs/equilibrium measure |
+| `measure_entropy(mu, transition)` | Kolmogorov-Sinai entropy of μ |
+| `potential_integral(phi, mu)` | ∫φ dμ |
+| `free_energy(&sys)` | P(φ) − sup ∫φ dμ |
+| `is_equilibrium(mu, &sys, tol)` | Check variational principle equality |
+
+### `ruelle` — Ruelle Operator
+
+| Signature | Description |
+|---|---|
+| `RuelleOperator::new(transition, potential)` | Weighted transfer operator |
+| `r.apply(f)` | Apply L\_φ to function f |
+| `r.pressure()` | log(leading eigenvalue) |
+| `r.leading_eigenfunction()` | Eigenfunction of leading eigenvalue |
+| `r.equilibrium_measure(max_iter, tol)` | Equilibrium state via dual operator |
+| `r.correlation(f, g, n, mu)` | Cₙ(f,g) = ∫f·Lⁿg dμ − (∫f dμ)(∫g dμ) |
+| `r.dual()` | Adjoint operator |
+
+### `subshift` — Subshifts of Finite Type
+
+| Signature | Description |
+|---|---|
+| `SubshiftFiniteType::new(adjacency)` | From 0-1 adjacency matrix |
+| `SubshiftFiniteType::full_shift(n)` | Full shift on *n* symbols |
+| `SubshiftFiniteType::golden_mean()` | Classic golden mean shift |
+| `sft.topological_entropy()` | log(λ\_max) of adjacency matrix |
+| `sft.count_words(n)` | Number of allowed words of length *n* |
+| `sft.enumerate_words(length)` | List all allowed words |
+| `sft.parry_measure()` | Measure of maximal entropy |
+| `sft.zeta_function(z)` | det(I − zA) |
+| `sft.is_irreducible()` | Check strong connectivity |
+
+### `entropy` — Entropy Theory
+
+| Signature | Description |
+|---|---|
+| `shannon_entropy(prob)` | H(p) = −Σ pᵢ log pᵢ |
+| `joint_entropy(joint)` | H(X,Y) from joint distribution |
+| `conditional_entropy(joint)` | H(X\|Y) |
+| `mutual_information(joint)` | I(X;Y) = H(X) + H(Y) − H(X,Y) |
+| `kolmogorov_sinai_entropy(mu, P)` | Markov chain KS entropy |
+| `kl_divergence(p, q)` | D(P‖Q) |
+| `topological_entropy_from_counts(counts)` | From word count growth rates |
+| `information_dimension(entropies, scales)` | Fractal information dimension |
+
+### `lyapunov` — Lyapunov Spectrum & Oseledets
+
+| Signature | Description |
+|---|---|
+| `LyapunovSpectrum::from_jacobians(jacobians)` | QR-based from trajectory Jacobians |
+| `LyapunovSpectrum::from_matrix(M, n_iter)` | From repeated matrix application |
+| `spectrum.is_chaotic()` | Any positive exponent? |
+| `spectrum.is_dissipative()` | Sum of exponents < 0? |
+| `spectrum.pesin_entropy()` | h = Σ λ⁺ |
+| `spectrum.kaplan_yorke_dimension()` | Fractal dimension estimate |
+| `oseledets_splitting(jacobians, tol)` | Lyapunov subspaces |
+| `finite_time_lyapunov(series, ε)` | From time series via nearest-neighbor |
+
+---
+
+## How It Works
+
+### Operator-theoretic pipeline
+
+```
+Dynamical System T: X → X
+        │
+        ├─→ Transfer Operator (Perron-Frobenius)  ──→ Invariant measures
+        │                                            mixing rates
+        │                                            ergodicity
+        │
+        ├─→ Koopman Operator (composition)      ──→ Eigenfunctions
+        │                                            DMD modes
+        │                                            Spectral decomposition
+        │
+        ├─→ Ruelle Operator (weighted transfer)  ──→ Pressure P(φ)
+        │                                            Equilibrium states
+        │                                            Correlation decay
+        │
+        └─→ Linearization (Jacobian)            ──→ Lyapunov exponents
+                                                 Pesin entropy
+                                                 Kaplan-Yorke dimension
+```
+
+Each operator is represented as a finite-dimensional matrix (Galerkin projection onto a basis). The spectral properties of these matrices approximate the infinite-dimensional truth to whatever resolution your basis provides.
+
+### Numerical methods
+
+- **Power iteration** for leading eigenvalues/eigenvectors (transfer, Koopman, Ruelle, spectral)
+- **QR decomposition** (Gram-Schmidt) for Lyapunov exponents — the standard Benettin algorithm
+- **Cofactor expansion** for determinants of complex matrices (zeta function)
+- **Gershgorin circles** for spectral bounds (C\*-algebra)
+- **Deflation** for multi-eigenvalue extraction (zeta poles)
+- **Linear regression** for entropy from word counts and information dimension
+
+---
+
+## The Math
+
+### Perron-Frobenius operator
+
+For a non-singular transformation *T* on a measure space *(X, μ)*, the **Perron-Frobenius operator** *P* acts on *L¹* functions by:
+
+> (Pf)(y) = Σ_{T(x)=y} f(x) / |det DT(x)|
+
+In matrix form: *P = T^⊤* (the transpose of the stochastic transition matrix). The **invariant measure** is the fixed point *Pμ = μ*, computed via power iteration.
+
+### Koopman operator
+
+The **Koopman operator** *K* is the adjoint of the transfer operator:
+
+> (Kg)(x) = g(T(x))
+
+It acts on observables (functions) rather than densities. **Dynamic Mode Decomposition (DMD)** approximates the eigenfunctions of *K* from data: given snapshot pairs *(X, Y = TX)*, compute *A = YX⁺* and find its eigen-decomposition.
+
+### C\*-algebra
+
+A **C\*-algebra** is a Banach \*-algebra *A* satisfying ‖a\*a‖ = ‖a‖² for all *a ∈ A*. In the matrix setting, elements are self-adjoint (Hermitian) operators with the operator norm. The **spectral radius** ρ(a) = sup|σ(a)| satisfies ρ(a) ≤ ‖a‖.
+
+### Dynamical zeta function
+
+For a transfer operator *T*:
+
+> ζ(z) = det(I − zT)⁻¹ = exp(Σ_{n≥1} Tr(Tⁿ) zⁿ / n)
+
+The **poles** of ζ are at *z = 1/λᵢ* where *λᵢ* are eigenvalues of *T*. The **radius of convergence** is *1/ρ(T)*. These encode the periodic orbit structure: the zeta function "knows" about every periodic point of the system.
+
+### Thermodynamic formalism
+
+Given a potential *φ: X → ℝ*:
+
+- The **Ruelle operator** *L\_φ* weights the transfer operator by *exp(φ)*
+- **Topological pressure**: P(φ) = log(λ\_max(L\_φ))
+- **Equilibrium state**: the unique invariant measure *μ* maximizing *h(μ) + ∫φ dμ*
+- **Variational principle**: P(φ) = sup\_μ {h(μ) + ∫φ dμ}
+
+This bridges dynamics and statistical mechanics: pressure plays the role of free energy, entropy is the thermodynamic entropy, and the equilibrium state is the Gibbs measure.
+
+### Subshifts of finite type
+
+An SFT is defined by a 0-1 adjacency matrix *A*. The allowed sequences are *Σ\_A = {x : A[x\_i][x\_{i+1}] = 1 ∀i}*. Key invariants:
+
+- **Topological entropy**: h\_top = log(ρ(A)) — exponential growth rate of allowed words
+- **Parry measure**: the measure of maximal entropy, constructed from left/right Perron eigenvectors
+- **Zeta function**: ζ\_A(z) = 1/det(I − zA)
+
+The **golden mean shift** (forbidden word: "11") has h\_top = log(φ) where φ = (1+√5)/2.
+
+### Entropy theory
+
+| Concept | Formula |
+|---|---|
+| Shannon entropy | H(p) = −Σ pᵢ log pᵢ |
+| Kolmogorov-Sinai entropy | h\_KS(μ) = −Σ μᵢ Pᵢⱼ log Pᵢⱼ |
+| Conditional entropy | H(X\|Y) = −Σ p(x,y) log p(x\|y) |
+| Mutual information | I(X;Y) = H(X) + H(Y) − H(X,Y) |
+| KL divergence | D(P‖Q) = Σ pᵢ log(pᵢ/qᵢ) |
+| Information dimension | D = lim\_{ε→0} H(ε)/log(1/ε) |
+
+### Lyapunov exponents
+
+By the **Oseledets multiplicative ergodic theorem**, for a.e. trajectory of a smooth dynamical system, the limit:
+
+> λᵢ = lim\_{n→∞} (1/n) log σᵢ(DTⁿ)
+
+exists and gives the **Lyapunov spectrum** *λ₁ ≥ λ₂ ≥ … ≥ λ\_d*. These measure exponential expansion/contraction rates:
+
+- **Chaotic** ↔ at least one λᵢ > 0
+- **Pesin's formula**: h = Σ λᵢ⁺ (entropy = sum of positive exponents)
+- **Kaplan-Yorke dimension**: D\_KY = j + (Σᵢ₌₁ʲ λᵢ)/|λ\_{j+1}| where j maximizes the partial sum ≥ 0
+
+The QR-based algorithm decomposes the product *Jₙ · Jₙ₋₁ · … · J₁ = QₙRₙ · … · Q₁R₁* and reads the Lyapunov exponents from the diagonal of the accumulated *R* matrices.
+
+---
+
+## Test Coverage
+
+87 unit tests covering all 10 modules:
+
+| Module | Tests | Key Assertions |
+|---|---|---|
+| `transfer` | 9 | Invariant measures, adjoints, leading eigenvalues |
+| `koopman` | 9 | DMD eigenvalues, finite approximations, basis projections |
+| `cstar` | 9 | Norms, positivity, self-adjointness, Gershgorin bounds |
+| `spectral` | 6 | Eigenvalues, spectral radius, power iteration |
+| `zeta` | 8 | Evaluation, poles, Taylor coefficients, convergence radius |
+| `thermo` | 7 | Pressure, equilibrium states, entropy, dimension validation |
+| `ruelle` | 7 | Pressure, equilibrium measures, correlation decay |
+| `subshift` | 11 | Golden mean entropy, word counting, Parry measure, irreducibility |
+| `entropy` | 12 | Shannon, conditional, mutual info, KL, topological, info dimension |
+| `lyapunov` | 9 | Chaotic/dissipative/conservative checks, Pesin, Kaplan-Yorke |
+
+Run with:
 
 ```bash
 cargo test
 ```
 
-Test categories:
-- **Transfer operator** — stochasticity, invariant measures, iteration, Perron-Frobenius eigenvalue
-- **Koopman operator** — DMD construction, unitarity checks, spectral radius
-- **C\*-algebra** — norms, self-adjointness, positivity, commutativity, functional calculus
-- **Spectral decomposition** — power iteration, spectral projections, functional calculus
-- **Zeta function** — evaluation, poles, Taylor coefficients, radius of convergence
-- **Thermodynamic formalism** — pressure, equilibrium states, free energy, entropy
-- **Ruelle operator** — leading eigenvalue, pressure, correlations, equilibrium measure
-- **Subshifts** — word counting, entropy, Parry measure, word enumeration
-- **Entropy** — Shannon, joint, conditional, mutual information, KL divergence, information dimension
-- **Lyapunov spectrum** — chaotic/dissipative/conservative detection, Pesin entropy, Kaplan-Yorke dimension
-
 ---
 
-## Mathematical Background
+## Project Structure
 
-### Duality: Transfer vs Koopman
-
-For a map T: X → X preserving measure μ:
-- **Transfer operator** P acts on densities: P pushes probability measures forward
-- **Koopman operator** K acts on observables: K pulls functions back
-- They are **adjoints**: ⟨Kf, g⟩ = ⟨f, Pg⟩
-
-### Thermodynamic Formalism
-
-For a potential φ: X → ℝ:
-- **Ruelle operator** L_φ weights transitions by exp(φ)
-- **Topological pressure** P(φ) = log(spectral radius of L_φ)
-- **Equilibrium state**: the measure μ maximizing h(μ) + ∫φ dμ
-- **Variational principle**: P(φ) = sup_μ [h(μ) + ∫φ dμ]
-
-### Lyapunov Exponents and Pesin's Formula
-
-The **Oseledets theorem** guarantees that for almost every trajectory, the limit:
-
-> λᵢ = lim (1/n) log σᵢ(DT^n)
-
-exists and is constant, where σᵢ are singular values. **Pesin's formula** relates these to entropy:
-
-> h(μ) = Σ λᵢ⁺ (sum of positive Lyapunov exponents)
-
-The **Kaplan-Yorke dimension** estimates the fractal dimension of the attractor:
-
-> D_KY = j + (Σᵢ₌₁ʲ λᵢ) / |λ_{j+1}|
-
-where j is the largest index with cumulative sum ≥ 0.
-
----
-
-## Dependencies
-
-| Crate | Purpose |
-|---|---|
-| `nalgebra` | Linear algebra with serde support |
-| `num-complex` | Complex number arithmetic |
-| `num-traits` | Numeric trait abstractions |
-| `serde` / `serde_json` | Serialization |
-| `approx` (dev) | Floating-point assertions in tests |
+```
+src/
+├── lib.rs            # Module re-exports
+├── transfer.rs       # Perron-Frobenius transfer operator
+├── koopman.rs        # Koopman operator & DMD
+├── cstar.rs          # C*-algebra elements
+├── spectral.rs       # Spectral decomposition
+├── zeta.rs           # Dynamical zeta function
+├── thermo.rs         # Thermodynamic formalism
+├── ruelle.rs         # Ruelle operator
+├── subshift.rs       # Subshifts of finite type
+├── entropy.rs        # Entropy theory
+└── lyapunov.rs       # Lyapunov spectrum & Oseledets
+```
 
 ---
 
