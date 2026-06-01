@@ -1,0 +1,18 @@
+[package]
+name = "lau-dynamical-algebra"
+version = "0.1.0"
+edition = "2021"
+description = "The algebra of dynamical systems — operator algebras from evolution"
+license = "MIT"
+repository = "https://github.com/SuperInstance/lau-dynamical-algebra"
+keywords = ["dynamical-systems", "operator-algebra", "perron-frobenius", "koopman", "ruelle"]
+categories = ["mathematics", "science"]
+
+[dependencies]
+nalgebra = { version = "0.33", features = ["serde-serialize"] }
+serde = { version = "1", features = ["derive"] }
+num-complex = { version = "0.4", features = ["serde"] }
+num-traits = "0.2"
+
+[dev-dependencies]
+approx = "0.5"
